@@ -111,6 +111,7 @@ public class PolylineManager {
                              LatLng destination, Map<MarkerOptions, Object> markersToPreserve) {
     if (polylinePoints.isEmpty()) return;
 
+    // Find both the closest point and determine your progress along the route
     int closestIndex = 0;
     float minDistance = Float.MAX_VALUE;
 
@@ -123,23 +124,84 @@ public class PolylineManager {
       }
     }
 
+    // Determine if we're past this point or approaching it
+    // We'll use the heading/bearing to determine this
+    int lastPassedIndex = closestIndex;
+
+    // If not at the start or end of the route
+    if (closestIndex > 0 && closestIndex < polylinePoints.size() - 1) {
+      LatLng previousPoint = polylinePoints.get(closestIndex - 1);
+      LatLng closestPoint = polylinePoints.get(closestIndex);
+      LatLng nextPoint = polylinePoints.get(closestIndex + 1);
+
+      // Calculate bearing from previous to closest
+      float routeBearing = bearingBetween(previousPoint, nextPoint);
+
+      // Calculate bearing from closest to current
+      float currentBearing = bearingBetween(closestPoint, currentLocation);
+
+      // Compare the bearings to see if we're moving away from or toward the route
+      float bearingDiff = Math.abs(routeBearing - currentBearing);
+      if (bearingDiff > 90 && bearingDiff < 270) {
+        // We're likely still approaching this point
+        lastPassedIndex = closestIndex - 1;
+      }
+    }
+
     googleMap.clear();
+    PolylineManager polylineManager = new PolylineManager();
 
-    // Traveled Path in Green
-    List<LatLng> traveledPath = polylinePoints.subList(0, closestIndex + 1);
-    new PolylineManager().drawPolyline(googleMap, traveledPath, Color.GREEN);
+    // 1. Green polyline: from start to last passed point
+    if (lastPassedIndex > 0) {
+      List<LatLng> traveledPath = new ArrayList<>(polylinePoints.subList(0, lastPassedIndex + 1));
+      polylineManager.drawPolyline(googleMap, traveledPath, Color.GREEN);
+    }
 
-    // Remaining Path in Blue
-    List<LatLng> remainingPath = polylinePoints.subList(closestIndex, polylinePoints.size());
-    new PolylineManager().drawPolyline(googleMap, remainingPath, Color.BLUE);
+    // 2. Green polyline: from last passed point to current location
+    List<LatLng> currentSegment = new ArrayList<>();
+    currentSegment.add(polylinePoints.get(lastPassedIndex));
+    currentSegment.add(currentLocation);
+    polylineManager.drawPolyline(googleMap, currentSegment, Color.GREEN);
+
+    // 3. Blue polyline: from current location to next point
+    if (lastPassedIndex + 1 < polylinePoints.size()) {
+      List<LatLng> nextSegment = new ArrayList<>();
+      nextSegment.add(currentLocation);
+      nextSegment.add(polylinePoints.get(lastPassedIndex + 1));
+      polylineManager.drawPolyline(googleMap, nextSegment, Color.BLUE);
+
+      // 4. Blue polyline: from next point to destination
+      if (lastPassedIndex + 1 < polylinePoints.size() - 1) {
+        List<LatLng> remainingPath = new ArrayList<>(
+            polylinePoints.subList(lastPassedIndex + 1, polylinePoints.size()));
+        polylineManager.drawPolyline(googleMap, remainingPath, Color.BLUE);
+      }
+    }
 
     // Re-add destination marker
-    googleMap.addMarker(new MarkerOptions().position(new LatLng(destination.latitude, destination.longitude)));
+    googleMap.addMarker(new MarkerOptions().position(destination));
 
     // Re-add all preserved markers
     for (MarkerOptions markerOptions : markersToPreserve.keySet()) {
       googleMap.addMarker(markerOptions);
     }
+  }
+
+  // Helper method to calculate bearing between two points
+  private float bearingBetween(LatLng from, LatLng to) {
+    double lat1 = Math.toRadians(from.latitude);
+    double lon1 = Math.toRadians(from.longitude);
+    double lat2 = Math.toRadians(to.latitude);
+    double lon2 = Math.toRadians(to.longitude);
+
+    double dLon = lon2 - lon1;
+
+    double y = Math.sin(dLon) * Math.cos(lat2);
+    double x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
+
+    double bearing = Math.atan2(y, x);
+
+    return (float) Math.toDegrees(bearing);
   }
 
   private float distanceBetween(LatLng p1, LatLng p2) {
